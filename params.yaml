@@ -1,0 +1,15 @@
+# WESAD DATA PARAMS
+
+## Data Loading Params
+valid_subjects : [2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+required_signals : ['ACC', 'BVP', 'EDA', 'TEMP']
+sampling_rates : 
+  wrist:
+    ACC : 32
+    BVP : 64
+    EDA : 4
+    TEMP: 4
+
+common_sampling_rate : 4
+window_size : 60 # seconds
+

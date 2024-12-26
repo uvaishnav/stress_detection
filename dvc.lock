@@ -1,0 +1,15 @@
+schema: '2.0'
+stages:
+  wesad_data_ingestion:
+    cmd: python src/StressDetection/pipeline/data_ingestion_pipeline.py
+    deps:
+    - path: src/StressDetection/components/data_ingestion.py
+      hash: md5
+      md5: beb1f14b954b5dd64b8302a7657337a7
+      size: 12384
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: 9ec4522fed353d92bf30e68e96ec6224.dir
+      size: 18642174
+      nfiles: 1

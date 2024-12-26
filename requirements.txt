@@ -1,3 +1,9 @@
 numpy
 pandas
+dvc
+python-box
+ensure
+joblib
+matplotlib
+seaborn
 # -e .

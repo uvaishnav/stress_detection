@@ -1,0 +1,6 @@
+data_root : data
+
+wesad_data_ingestion:
+  data_source_path: data/raw/WESAD
+  data_target_path: data/processed/WESAD
+

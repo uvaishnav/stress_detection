@@ -1,0 +1,10 @@
+stages:
+  wesad_data_ingestion:
+    cmd: python src/StressDetection/pipeline/data_ingestion_pipeline.py
+    deps: 
+      - src/StressDetection/components/data_ingestion.py
+      # Uncomment the following lines if you need to include these files as dependencies
+      # - config.yaml
+      # - params.yaml
+    outs:
+      - data/processed
