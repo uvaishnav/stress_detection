@@ -4,3 +4,24 @@ wesad_data_ingestion:
   data_source_path: data/raw/WESAD
   data_target_path: data/processed/WESAD
 
+signal_precessing:
+  bvp_filter_low: 0.7
+  bvp_filter_high: 1.8
+  eda_filter_low: 0.05
+  eda_filter_high: 0.8
+  acc_threshold: 1.2
+  motion_window: 8
+  overlap: 30 # window_size // 2
+  quality_threshold: 0.7
+  physiological_ranges:
+    bvp_min: -10.0
+    bvp_max: 10.0
+    eda_min: 0.0
+    eda_max: 25.0
+    temp_min: 30.0
+    temp_max: 40.0
+
+preprocesssig:
+  processed_data_path: artifacts/preprocessed
+  temp_baseline : 35.0
+  artifact_threshold : 0.3

@@ -11,5 +11,5 @@ sampling_rates :
     TEMP: 4
 
 common_sampling_rate : 4
-window_size : 60 # seconds
+window_size : 60 # seconds  # change overlap accordingly
 
