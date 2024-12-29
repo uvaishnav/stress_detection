@@ -94,32 +94,41 @@ class SignalProcessor:
         return filtered_data
 
     def assess_signal_quality(self, data: pd.DataFrame) -> np.ndarray:
-        """Calculate signal quality with balanced criteria."""
-        # Get motion and physiological masks
+        """Calculate signal quality with tier-based assessment."""
+        # Basic checks
         motion_mask = ~self.detect_motion(data[['ACC_X', 'ACC_Y', 'ACC_Z']].values)
         ranges = self.config.physiological_ranges
         
-        # Basic validity checks
+        # Validity checks
         bvp_valid = (ranges['bvp_min'] <= data['BVP']) & (data['BVP'] <= ranges['bvp_max'])
         eda_valid = (ranges['eda_min'] <= data['EDA']) & (data['EDA'] <= ranges['eda_max'])
         temp_valid = (ranges['temp_min'] <= data['TEMP']) & (data['TEMP'] <= ranges['temp_max'])
         
-        # Relative stability checks
-        window_size = 24  # Increased for better stability assessment
+        # Enhanced stability analysis with relaxed thresholds
+        short_window = 8   # Slightly larger for smoother analysis
+        long_window = 24   # Longer trend window
         
-        # Calculate relative changes using backward fill
-        bvp_mean = pd.Series(data['BVP']).rolling(window=window_size).mean().bfill()
-        eda_mean = pd.Series(data['EDA']).rolling(window=window_size).mean().bfill()
+        # Calculate signal metrics
+        bvp_diff = np.abs(np.diff(data['BVP'], prepend=data['BVP'].iloc[0]))
+        eda_diff = np.abs(np.diff(data['EDA'], prepend=data['EDA'].iloc[0]))
         
-        bvp_rel_change = np.abs((data['BVP'] - bvp_mean) / (bvp_mean + 1e-6))
-        eda_rel_change = np.abs((data['EDA'] - eda_mean) / (eda_mean + 1e-6))
+        # Rolling statistics
+        bvp_std_short = pd.Series(data['BVP']).rolling(window=short_window).std().bfill()
+        eda_std_short = pd.Series(data['EDA']).rolling(window=short_window).std().bfill()
+        bvp_std_long = pd.Series(data['BVP']).rolling(window=long_window).std().bfill()
+        eda_std_long = pd.Series(data['EDA']).rolling(window=long_window).std().bfill()
         
-        # Adaptive stability thresholds
-        bvp_stable = bvp_rel_change < 0.3  # 30% relative change
-        eda_stable = eda_rel_change < 0.2  # 20% relative change
+        # Relaxed stability criteria
+        bvp_stable = (bvp_diff < 0.15) & (bvp_std_short < 0.2) & (bvp_std_long < 0.25)
+        eda_stable = (eda_diff < 0.08) & (eda_std_short < 0.1) & (eda_std_long < 0.15)
         
-        # Combined stability score
-        stability_score = (np.mean(bvp_stable) + np.mean(eda_stable)) / 2
+        # Signal variance check (new)
+        bvp_var_ok = pd.Series(data['BVP']).rolling(window=long_window).var().bfill() < 0.3
+        eda_var_ok = pd.Series(data['EDA']).rolling(window=long_window).var().bfill() < 0.2
+        
+        # Combined stability with variance
+        signal_stable = (bvp_stable & eda_stable) | (bvp_var_ok & eda_var_ok)
+        stability_score = np.mean(signal_stable)
         
         # Debug output
         print("\nQuality Mask Details:")
@@ -128,18 +137,19 @@ class SignalProcessor:
         print(f"EDA valid: {np.mean(eda_valid):.2f}")
         print(f"Signal stability: {stability_score:.2f}")
         
-        # Quality calculation with adjusted weights
-        base_quality = (
-            2.0 * motion_mask +
-            3.0 * bvp_valid +
-            3.0 * eda_valid +
-            1.0 * temp_valid +
-            3.0 * bvp_stable +
-            3.0 * eda_stable
-        ) / 15.0
+        # Quality tiers with higher base scores
+        perfect_quality = motion_mask & bvp_valid & eda_valid & signal_stable
+        high_quality = motion_mask & bvp_valid & eda_valid & (bvp_stable | eda_stable)
+        base_quality = motion_mask & bvp_valid & eda_valid
         
-        # Scale to desired range [0.6, 1.0] for clean signals
-        quality_mask = 0.6 + 0.4 * base_quality
+        # Adjusted tier scoring
+        quality_mask = np.where(perfect_quality, 
+                            0.98 + 0.02 * stability_score,    # Tier 1: 0.98-1.0
+                            np.where(high_quality,
+                                    0.95 + 0.03 * stability_score,  # Tier 2: 0.95-0.98
+                                    np.where(base_quality,
+                                            0.90 + 0.05 * stability_score,  # Tier 3: 0.90-0.95
+                                            0.20 + 0.10 * stability_score))) # Poor: 0.20-0.30
         
         print(f"Final quality: {np.mean(quality_mask):.2f}")
         return quality_mask
