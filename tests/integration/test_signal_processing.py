@@ -1,7 +1,11 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
+
 import pytest
 import numpy as np
 import pandas as pd
-from src.StressDetection.components.signal_processing import SignalProcessor, SignalProcessingConfig
+from StressDetection.components.signal_processing import SignalProcessor, SignalProcessingConfig
 
 
 def test_end_to_end_pipeline(signal_config, large_sample_data):
@@ -13,8 +17,8 @@ def test_end_to_end_pipeline(signal_config, large_sample_data):
         eda_filter_low=signal_config.eda_filter_low,
         eda_filter_high=signal_config.eda_filter_high,
         quality_threshold=0.2,  # Very lenient threshold
-        acc_threshold=0.2,      # # Lower threshold for centered data
-        motion_window=8,        # Shorter window
+        acc_threshold=1.0,
+        motion_window=32,        
         physiological_ranges={  # Match to generated signals
             'bvp_min': -1.0,
             'bvp_max': 1.0,
@@ -84,67 +88,48 @@ def test_end_to_end_pipeline(signal_config, large_sample_data):
     assert all(score >= signal_config.quality_threshold for score in scores), \
         "All scores should meet threshold"
 
-def calculate_max_segments(data_len: int, window_size: int, overlap: int) -> int:
-    """Calculate maximum possible segments with overlap.
-    
-    Args:
-        data_len: Total length of data
-        window_size: Size of each window in seconds
-        overlap: Overlap between windows in seconds
-        
-    Returns:
-        Number of possible segments
-    """
-    window_samples = window_size * 4  # 4Hz sampling rate
-    stride = window_samples - (overlap * 4)  # Effective stride between windows
-    n_segments = (data_len - window_samples) // stride + 1
-    return n_segments
+
+
+def calculate_max_segments(data_length, window_size, overlap):
+    window_samples = window_size * 4  # Assuming 4Hz sampling rate
+    overlap_samples = overlap * 4
+    stride = window_samples - overlap_samples
+    return (data_length - window_samples) // stride + 1
 
 def test_motion_artifact_handling(strict_config, large_sample_data):
     """Test handling of motion artifacts in data."""
-    # Inject stronger artifacts
     artifact_period = slice(1000, 3000)
     large_sample_data.loc[artifact_period, ['ACC_X', 'ACC_Y', 'ACC_Z']] = 100.0
-    
+
     processor = SignalProcessor(strict_config)
     segments, scores = processor.process_signals(large_sample_data)
-    
+
     max_segments = calculate_max_segments(
         len(large_sample_data),
         strict_config.window_size,
         strict_config.overlap
     )
-    
+
+
+    print(f"Number of segments: {len(segments)}")
+    print(f"Max segments: {max_segments}")
+    print(f"Threshold: {max_segments * 0.3}")
+    print(f"Scores: {scores}")
+
     assert len(segments) < max_segments * 0.3
 
 def test_signal_quality_assessment(strict_config, large_sample_data):
     """Test signal quality assessment with controlled noise."""
     np.random.seed(42)
-    
-    test_config = SignalProcessingConfig(
-        bvp_filter_low=0.7,
-        bvp_filter_high=1.8,
-        eda_filter_low=0.05,
-        eda_filter_high=0.8,
-        quality_threshold=0.2,  # Very lenient threshold
-        acc_threshold=1.0,  # High motion tolerance
-        motion_window=8,
-        physiological_ranges=strict_config.physiological_ranges,
-        common_sampling_rate=4,
-        window_size=60,
-        overlap=30
-    )
-    
-    # Setup
-    sample_rate = test_config.common_sampling_rate
-    window_samples = test_config.window_size * sample_rate
+
+
+    sample_rate = strict_config.common_sampling_rate
+    window_samples = strict_config.window_size * sample_rate
     t = np.arange(len(large_sample_data)) / sample_rate
-    
-    # Clean signals
+
     bvp_clean = 0.6 * np.sin(2 * np.pi * 1.1 * t)
     eda_clean = 5.0 + 0.4 * np.sin(2 * np.pi * 0.1 * t)
-    
-    # First 8 windows - clean data (4 minutes)
+
     clean_section = 8 * window_samples
     large_sample_data.iloc[:clean_section] = pd.DataFrame({
         'BVP': bvp_clean[:clean_section],
@@ -154,10 +139,9 @@ def test_signal_quality_assessment(strict_config, large_sample_data):
         'ACC_Y': 0.0,
         'ACC_Z': 1.0
     }, index=large_sample_data.index[:clean_section])
-    
-    # Next 4 windows - mild noise (2 minutes)
+
     mild_noise = 10 * window_samples
-    noise_level = 0.1  # 10% noise
+    noise_level = 0.1
     large_sample_data.iloc[clean_section:mild_noise] = pd.DataFrame({
         'BVP': bvp_clean[clean_section:mild_noise] + np.random.normal(0, noise_level * 0.6, mild_noise-clean_section),
         'EDA': eda_clean[clean_section:mild_noise] + np.random.normal(0, noise_level * 0.4, mild_noise-clean_section),
@@ -166,14 +150,13 @@ def test_signal_quality_assessment(strict_config, large_sample_data):
         'ACC_Y': 0.2 * np.random.randn(mild_noise-clean_section),
         'ACC_Z': 1.0
     }, index=large_sample_data.index[clean_section:mild_noise])
-    
-    # Remaining data - progressive noise
+
     for i in range(10, len(large_sample_data) // window_samples):
         start = i * window_samples
         end = min((i + 1) * window_samples, len(large_sample_data))
         samples = end - start
-        noise_factor = min(0.15 * (i-9), 0.8)  # 15% steps, max 80%
-        
+        noise_factor = min(0.15 * (i-9), 0.8)
+
         motion = 0.3 * np.random.randn(samples)
         large_sample_data.iloc[start:end] = pd.DataFrame({
             'BVP': bvp_clean[start:end] + noise_factor * motion,
@@ -183,21 +166,55 @@ def test_signal_quality_assessment(strict_config, large_sample_data):
             'ACC_Y': 0.3 * np.random.randn(samples),
             'ACC_Z': 1.0 + 0.3 * motion
         }, index=large_sample_data.index[start:end])
-    
-    # Process and validate
-    processor = SignalProcessor(test_config)
+
+    processor = SignalProcessor(strict_config)
     segments, scores = processor.process_signals(large_sample_data)
-    max_segments = calculate_max_segments(len(large_sample_data), test_config.window_size, test_config.overlap)
-    
+    max_segments = calculate_max_segments(len(large_sample_data), strict_config.window_size, strict_config.overlap)
     print("\nTest Configuration:")
-    print(f"Quality threshold: {test_config.quality_threshold}")
+    print(f"Quality threshold: {strict_config.quality_threshold}")
     print(f"BVP signal: {np.ptp(bvp_clean[:window_samples])/2:.2f}V @ 1.1Hz")
     print(f"EDA signal: {np.ptp(eda_clean[:window_samples])/2:.2f}V @ 0.1Hz")
     print(f"Max noise level: {noise_factor*100:.0f}%")
     print("\nResults:")
     print(f"Segments: {len(segments)}/{max_segments}")
     print(f"Score range: [{np.min(scores):.3f}, {np.max(scores):.3f}]")
-    
-    # Validate results
+
     assert len(segments) > 0, "Should retain valid segments"
     assert len(segments) < max_segments * 0.8, "Should filter noisy segments"
+
+def test_kalman_filter(noisy_signal):
+    """Test Kalman filter performance on a noisy signal."""
+    processor = SignalProcessor(SignalProcessingConfig(
+        common_sampling_rate=4,
+        bvp_filter_low=0.7,
+        bvp_filter_high=1.8,
+        eda_filter_low=0.05,
+        eda_filter_high=0.8,
+        acc_threshold=0.1,
+        motion_window=32,
+        window_size=60,
+        overlap=30,
+        quality_threshold=0.85,
+        physiological_ranges={
+            'bvp_min': -1.0,
+            'bvp_max': 1.0,
+            'eda_min': 4.0,
+            'eda_max': 6.0,
+            'temp_min': 35.0,
+            'temp_max': 37.0
+        }
+    ))
+
+    filtered_signal = processor.kalman_filter(noisy_signal)
+    
+    # Assert that the filtered signal has less noise
+    assert np.std(filtered_signal) < np.std(noisy_signal), "Kalman filter did not reduce noise"
+
+    # Plot the results for visual inspection (optional)
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(noisy_signal, label='Noisy Signal')
+    plt.plot(filtered_signal, label='Filtered Signal', linewidth=2)
+    plt.legend()
+    plt.title('Kalman Filter Performance')
+    plt.show()

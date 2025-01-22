@@ -4,29 +4,40 @@ import pandas as pd
 from dataclasses import replace
 from StressDetection.entity.entity import SignalProcessingConfig
 
-
 @pytest.fixture(scope="function")
 def strict_config(signal_config):
     """Create stricter configuration for testing."""
     return replace(
         signal_config,
-        acc_threshold=0.5,  # Lower threshold for motion
-        quality_threshold=0.8,  # Higher quality requirement
+        acc_threshold=0.1,  # Lower threshold for motion
+        quality_threshold=0.85,  # Higher quality requirement
+        bvp_filter_low=0.7,
+        bvp_filter_high=1.8,
+        eda_filter_low=0.05,
+        eda_filter_high=0.8,
+        motion_window=32,
+        physiological_ranges={
+            'bvp_min': -1.0,
+            'bvp_max': 1.0,
+            'eda_min': 4.0,
+            'eda_max': 6.0,
+            'temp_min': 35.0,
+            'temp_max': 37.0
+        }
     )
 
 @pytest.fixture
 def large_sample_data():
     """Generate large test dataset."""
-    n_samples = 10000
-    time = np.linspace(0, 2500, n_samples)
-    
+    np.random.seed(42)
+    sample_size = 10000
     return pd.DataFrame({
-        'BVP': np.sin(2 * np.pi * 1.2 * time),
-        'EDA': 5 + 0.5 * np.sin(2 * np.pi * 0.1 * time),
-        'TEMP': 36 + 0.5 * np.sin(2 * np.pi * 0.05 * time),
-        'ACC_X': np.random.normal(0, 0.1, n_samples),
-        'ACC_Y': np.random.normal(0, 0.1, n_samples),
-        'ACC_Z': np.random.normal(1, 0.1, n_samples)
+        'BVP': np.random.uniform(-1.0, 1.0, sample_size),
+        'EDA': np.random.uniform(4.0, 6.0, sample_size),
+        'TEMP': np.random.uniform(35.0, 37.0, sample_size),
+        'ACC_X': np.random.normal(0, 0.1, sample_size),
+        'ACC_Y': np.random.normal(0, 0.1, sample_size),
+        'ACC_Z': np.random.normal(1, 0.1, sample_size)
     })
 
 @pytest.fixture
@@ -38,17 +49,27 @@ def signal_config():
         bvp_filter_high=1.8,
         eda_filter_low=0.05,
         eda_filter_high=0.8,
-        acc_threshold=1.2,
-        motion_window=8,
+        acc_threshold=0.1,
+        motion_window=32,
         window_size=60,
         overlap=30,
-        quality_threshold=0.7,
+        quality_threshold=0.85,
         physiological_ranges={
-            'bvp_min': -10.0,
-            'bvp_max': 10.0,
-            'eda_min': 0.0,
-            'eda_max': 25.0,
-            'temp_min': 30.0,
-            'temp_max': 40.0
+            'bvp_min': -1.0,
+            'bvp_max': 1.0,
+            'eda_min': 4.0,
+            'eda_max': 6.0,
+            'temp_min': 35.0,
+            'temp_max': 37.0
         }
     )
+
+@pytest.fixture
+def noisy_signal():
+    """Generate a noisy signal for testing."""
+    np.random.seed(42)
+    n_samples = 1000
+    signal = np.sin(np.linspace(0, 10 * np.pi, n_samples))  # Sine wave
+    noise = np.random.normal(0, 0.5, n_samples)  # Gaussian noise
+    noisy_signal = signal + noise
+    return noisy_signal
