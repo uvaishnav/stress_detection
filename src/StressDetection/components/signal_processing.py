@@ -5,6 +5,7 @@ from typing import Tuple, Dict, List
 import pandas as pd
 
 from StressDetection.entity.entity import SignalProcessingConfig
+import joblib
 
 class SignalProcessor:
     def __init__(self, config: SignalProcessingConfig):
@@ -66,26 +67,31 @@ class SignalProcessor:
             P[k] = (1 - K[k]) * Pminus[k]
 
         return xhat
-
+    
     def detect_motion(self, acc_data: np.ndarray) -> np.ndarray:
-        """Enhanced motion detection with magnitude and jerk analysis."""
+        """Enhanced motion detection using Kalman filtering."""
         acc_centered = acc_data - np.array([0, 0, 1.0])  # Remove gravity
         acc_magnitude = np.sqrt(np.sum(acc_centered ** 2, axis=1))
-        acc_diff = np.diff(acc_magnitude, prepend=acc_magnitude[0])
+        
+        # Apply Kalman filter to smooth the acceleration magnitude
+        acc_magnitude_smoothed = self.kalman_filter(acc_magnitude)
+        
+        acc_diff = np.diff(acc_magnitude_smoothed, prepend=acc_magnitude_smoothed[0])
         jerk = np.abs(acc_diff)
 
         motion_mask = (
-            (acc_magnitude > self.config.acc_threshold) |
-            (jerk > self.config.acc_threshold)
+            (acc_magnitude_smoothed > self.config.acc_threshold) |
+            (jerk > self.config.jerking_threshold)
         )
 
         window = np.ones(self.config.motion_window)
         smoothed = np.convolve(motion_mask.astype(float), window / len(window), mode='same')
-
+        
         # Debugging statements
-        print(f"acc_magnitude: {acc_magnitude}")
+        print(f"acc_magnitude_smoothed: {acc_magnitude_smoothed}")
         print(f"jerk: {jerk}")
         print(f"motion_mask: {motion_mask}")
+        print(f"Motion mask counts: True = {np.sum(motion_mask)}, False = {len(motion_mask) - np.sum(motion_mask)}")
         print(f"smoothed: {smoothed}")
 
         return smoothed > 0.5
@@ -113,8 +119,14 @@ class SignalProcessor:
 
         return filtered_data
 
+    def _calculate_snr(self, signal):
+        signal_power = np.mean(signal ** 2)
+        noise_power = np.var(signal)
+        snr = 10 * np.log10(signal_power / noise_power)
+        return snr
+
     def assess_signal_quality(self, data: pd.DataFrame) -> np.ndarray:
-        """Calculate signal quality with adaptive thresholds."""
+        """Calculate signal quality using SNR and statistical measures."""
         motion_mask = ~self.detect_motion(data[['ACC_X', 'ACC_Y', 'ACC_Z']].values)
         ranges = self.config.physiological_ranges
 
@@ -125,53 +137,41 @@ class SignalProcessor:
         short_window = 8
         long_window = 24
 
-        def get_zero_crossings(signal):
-            diff_signal = np.diff(signal)
-            crossings = np.zeros(len(signal), dtype=bool)
-            sign_changes = np.signbit(diff_signal[:-1]) != np.signbit(diff_signal[1:])
-            crossings[1:-1] = sign_changes
-            return crossings
-
-        bvp_zero_crossings = get_zero_crossings(data['BVP'].values)
-        eda_zero_crossings = get_zero_crossings(data['EDA'].values - data['EDA'].mean())
+        bvp_snr = self._calculate_snr(data['BVP'].values)
+        eda_snr = self._calculate_snr(data['EDA'].values)
+        temp_snr = self._calculate_snr(data['TEMP'].values)   
 
         bvp_std_short = data['BVP'].rolling(window=short_window, center=True).std().fillna(0)
         eda_std_short = data['EDA'].rolling(window=short_window, center=True).std().fillna(0)
         bvp_std_long = data['BVP'].rolling(window=long_window, center=True).std().fillna(0)
         eda_std_long = data['EDA'].rolling(window=long_window, center=True).std().fillna(0)
 
-        bvp_stable = (bvp_std_short < 0.15) & (bvp_std_long < 0.2) & bvp_zero_crossings
-        eda_stable = (eda_std_short < 0.1) & (eda_std_long < 0.15) & ~eda_zero_crossings
+        # Adaptive thresholds based on data distribution
+        bvp_threshold_short = bvp_std_short.mean() + 2 * bvp_std_short.std()
+        eda_threshold_short = eda_std_short.mean() + 2 * eda_std_short.std()
+        bvp_threshold_long = bvp_std_long.mean() + 2 * bvp_std_long.std()
+        eda_threshold_long = eda_std_long.mean() + 2 * eda_std_long.std()
 
-        signal_stable = (bvp_stable & eda_stable) | self._check_frequency_stability(data['BVP'])
-        stability_score = np.mean(signal_stable)
+        bvp_stable = (bvp_std_short < bvp_threshold_short) & (bvp_std_long < bvp_threshold_long)
+        eda_stable = (eda_std_short < eda_threshold_short) & (eda_std_long < eda_threshold_long)
 
-        perfect_quality = motion_mask & bvp_valid & eda_valid & signal_stable
-        high_quality = motion_mask & bvp_valid & eda_valid & (bvp_stable | eda_stable)
-        base_quality = motion_mask & bvp_valid & eda_valid
+        signal_stable = bvp_stable & eda_stable
+        stability_score = np.mean(signal_stable)  
 
-        quality_mask = np.where(perfect_quality,
+        quality_mask = np.where(signal_stable & motion_mask,
                                 0.98 + 0.02 * stability_score,
-                                np.where(high_quality,
+                                np.where(signal_stable,
                                          0.95 + 0.03 * stability_score,
-                                         np.where(base_quality,
+                                         np.where(motion_mask,
                                                   0.90 + 0.05 * stability_score,
                                                   0.20)))
 
-        return quality_mask
-
-    def _check_frequency_stability(self, signal: pd.Series) -> bool:
-        zero_crossings = np.where(np.diff(np.signbit(signal)))[0]
-        if len(zero_crossings) < 2:
-            return False
-
-        intervals = np.diff(zero_crossings)
-        cv = np.std(intervals) / np.mean(intervals)
-        return cv < 0.5
+        return quality_mask    
+    
 
     def segment_signals(self, data: pd.DataFrame) -> List[pd.DataFrame]:
-        window_samples = self.config.window_size * self.config.common_sampling_rate
-        overlap_samples = self.config.overlap * self.config.common_sampling_rate
+        window_samples = int(self.config.window_size * self.config.common_sampling_rate)
+        overlap_samples = int(self.config.overlap * self.config.common_sampling_rate)
         stride = window_samples - overlap_samples
 
         segments = []
@@ -182,8 +182,8 @@ class SignalProcessor:
         return segments
 
     def calculate_segment_quality(self, quality_mask: np.ndarray) -> List[float]:
-        window_samples = self.config.window_size * self.config.common_sampling_rate
-        overlap_samples = self.config.overlap * self.config.common_sampling_rate
+        window_samples = int(self.config.window_size * self.config.common_sampling_rate)
+        overlap_samples = int(self.config.overlap * self.config.common_sampling_rate)
         stride = window_samples - overlap_samples
 
         quality_scores = []

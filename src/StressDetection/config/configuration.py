@@ -6,6 +6,7 @@ from StressDetection.entity.entity import (
     WesadDataIngestionConfig,
     PreprocessingConfig,
     SignalProcessingConfig,
+    FeatureExtractionConfig
 )
 
 class ConfigurationManager:
@@ -116,12 +117,13 @@ class ConfigurationManager:
                 eda_filter_low=float(config.eda_filter_low),
                 eda_filter_high=float(config.eda_filter_high),
                 acc_threshold=float(config.acc_threshold),
+                jerking_threshold=float(config.jerking_threshold),
                 motion_window=int(config.motion_window),
                 window_size=int(params.window_size),
                 common_sampling_rate=int(params.common_sampling_rate),
                 overlap=float(config.overlap),
                 quality_threshold=float(config.quality_threshold),
-                physiological_ranges=dict(params.physiological_ranges)
+                physiological_ranges=dict(config.physiological_ranges)
             )
         except AttributeError as e:
             raise KeyError(f"Missing required signal processing parameter: {str(e)}")
@@ -139,21 +141,35 @@ class ConfigurationManager:
         """
         try:
             config = self.config.preprocessing
-            params = self.params.preprocessing
-
-            # Validate path and parameters
+            params = self.params
+            
             processed_path = Path(config.processed_data_path)
-            if not isinstance(params.temp_baseline, (int, float)):
-                raise ValueError("Temperature baseline must be a number")
-            if params.artifact_threshold <= 0:
-                raise ValueError("Artifact threshold must be positive")
-
+            target_path = Path(config.processed_data_target_path)
+            
             return PreprocessingConfig(
                 processed_data_path=processed_path,
-                temp_baseline=float(params.temp_baseline),
-                artifact_threshold=float(params.artifact_threshold)
+                temp_baseline=float(config.temp_baseline),
+                artifact_threshold=float(config.artifact_threshold),
+                processed_data_target_path=target_path
             )
         except AttributeError as e:
             raise KeyError(f"Missing required preprocessing parameter: {str(e)}")
+        
+    def get_feature_extraction_config(self) -> FeatureExtractionConfig:
+        try:
+            config = self.config.feature_extraction
+            return FeatureExtractionConfig(
+                sampling_rate=int(config.sampling_rate),
+                hrv_features=bool(config.hrv_features),
+                quality_threshold=float(config.quality_threshold),
+                time_domain_features=bool(config.time_domain_features),
+                frequency_domain_features=bool(config.frequency_domain_features),
+                motion_features=bool(config.motion_features),
+                temperature_features=bool(config.temperature_features),
+                eda_features=bool(config.eda_features),
+                target_path=Path(config.target_path)
+            )
+        except AttributeError as e:
+            raise KeyError(f"Missing required feature extraction parameter: {str(e)}")
         
         

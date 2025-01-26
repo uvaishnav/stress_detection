@@ -7,4 +7,29 @@ stages:
       # - config.yaml
       # - params.yaml
     outs:
-      - data/processed
+      - data/processed/wesad/processed_data.csv
+
+  signal_processing:
+    cmd: python src/StressDetection/pipeline/signal_processing_pipeline.py
+    deps:
+      - src/StressDetection/components/signal_processing.py
+      # - src/StressDetection/config/configuration.py
+      # - src/StressDetection/entity/entity.py
+      # - data/processed/processed_data.csv
+      # - config.yaml
+      # - params.yaml
+    outs:
+      - data/signal_processed/processed_signal_segments
+
+  feature_extraction:
+    cmd: python src/StressDetection/pipeline/feature_extraction_pipeline.py
+    deps:
+      - src/StressDetection/components/feature_extraction.py
+      - src/StressDetection/pipeline/feature_extraction_pipeline.py
+      # - src/StressDetection/config/configuration.py
+      # - src/StressDetection/entity/entity.py
+      # - data/processed/wesad/processed_data.csv
+      # - config.yaml
+      # - params.yaml
+    outs:
+      - data/features/extracted_features.csv

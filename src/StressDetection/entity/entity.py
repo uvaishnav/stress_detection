@@ -26,6 +26,7 @@ class SignalProcessingConfig:
 
     # Motion artifact
     acc_threshold: float
+    jerking_threshold: float
     motion_window : int
 
     # window Parameters
@@ -36,6 +37,19 @@ class SignalProcessingConfig:
 @ dataclass(frozen=True)
 class PreprocessingConfig:
     processed_data_path: Path
-    signal_config: SignalProcessingConfig
     temp_baseline:float
     artifact_threshold: float
+    processed_data_target_path : Path
+
+
+@dataclass
+class FeatureExtractionConfig:
+    sampling_rate: int
+    hrv_features: bool
+    time_domain_features: bool
+    quality_threshold : float
+    frequency_domain_features: bool
+    motion_features: bool
+    temperature_features: bool
+    eda_features: bool
+    target_path: Path

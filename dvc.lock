@@ -5,11 +5,43 @@ stages:
     deps:
     - path: src/StressDetection/components/data_ingestion.py
       hash: md5
-      md5: beb1f14b954b5dd64b8302a7657337a7
-      size: 12384
+      md5: bfe0fccc9270526ce649d6b2681bf733
+      size: 12706
     outs:
-    - path: data/processed
+    - path: data/processed/wesad/processed_data.csv
       hash: md5
-      md5: 9ec4522fed353d92bf30e68e96ec6224.dir
+      md5: ee9ca7ec4ec1cf4e39078dd270ad0e89
       size: 18642174
-      nfiles: 1
+  signal_processing:
+    cmd: python src/StressDetection/pipeline/signal_processing_pipeline.py
+    deps:
+    - path: config.yaml
+      hash: md5
+      md5: 17f2bf0e60277ecdc034964c916798ff
+      size: 645
+    - path: src/StressDetection/components/signal_processing.py
+      hash: md5
+      md5: f5042bc658db89273ea44db5bec5bfb6
+      size: 8507
+    outs:
+    - path: data/signal_processed/processed_signal_segments
+      hash: md5
+      md5: 66c511b17c44dd8feb97559f198354ed.dir
+      size: 45478773
+      nfiles: 2892
+  feature_extraction:
+    cmd: python src/StressDetection/pipeline/feature_extraction_pipeline.py
+    deps:
+    - path: src/StressDetection/components/feature_extraction.py
+      hash: md5
+      md5: 822a5ece36e24840092a91337b77f22c
+      size: 6871
+    - path: src/StressDetection/pipeline/feature_extraction_pipeline.py
+      hash: md5
+      md5: 6462e9d9c544e7f3cdbc86a722a82fc2
+      size: 2989
+    outs:
+    - path: data/features/extracted_features.csv
+      hash: md5
+      md5: 170bcb840f2e690ca78a4532b216ec01
+      size: 1636223

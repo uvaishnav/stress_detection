@@ -224,17 +224,23 @@ class WESADLoader:
         Returns:
             np.ndarray: Processed binary labels.
         """
-        downsample_factor = 700 // self.config.common_sampling_rate
-        
+        downsample_factor = int(700 // self.config.common_sampling_rate)
+        logger.info(f"Downsample factor: {downsample_factor}")
+
         labels_df = pd.DataFrame(labels, columns=['label'])
         
         labels_resampled = labels_df.rolling(
-            window=downsample_factor,
+            window=int(downsample_factor),
             min_periods=int(downsample_factor * 0.8),  # 80% minimum samples
             center=True
         ).apply(lambda x: np.bincount(x.astype(int)).argmax())
+
+        logger.info(f"Labels resampled shape: {labels_resampled.shape}")
         
+        labels_resampled = labels_resampled.dropna().reset_index(drop=True)  # Drop NaNs and reset index
         labels_downsampled = labels_resampled.iloc[::downsample_factor].reset_index(drop=True)
+
+        logger.info(f"Labels downsampled shape: {labels_downsampled.shape}")
         
         labels_binary = (labels_downsampled == 2).astype(int)
         
